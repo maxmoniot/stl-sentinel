@@ -24,22 +24,11 @@
 
 ## Fonctionnalités
 
-**Analyse complète** — Glissez-déposez vos fichiers STL (binaires ou ASCII) et OBJ. Chaque modèle est analysé en profondeur avec un score sur barème.
-
-**6 critères d'analyse intégrés :**
-
-| Critère | Ce qu'il vérifie |
-|---|---|
-| **Dimensions** | L'objet rentre dans le volume d'impression (teste toutes les orientations) |
-| **Triangles** | Nombre raisonnable de triangles (ni vide, ni trop complexe) |
-| **Volume** | Volume positif — détecte les objets plats ou non fermés |
-| **Manifold** | Étanchéité du maillage (arêtes ouvertes ou non-manifold) |
-| **Triangles dégénérés** | Faces de surface nulle (sommets colinéaires ou confondus) |
-| **Normales** | Cohérence de l'orientation des faces |
-
-**Prévisualisation 3D** — Vignette pour chaque fichier dans la liste + viewer 3D interactif (orbit, zoom) à l'ouverture des détails.
-
-**Export CSV** — Rapport complet téléchargeable avec tous les scores et corrections.
+- **Import par lots** — Glissez-déposez vos fichiers STL (binaires ou ASCII) et OBJ. L'analyse se lance automatiquement.
+- **Volume d'impression** — Renseignez les dimensions X × Y × Z de votre plateau. L'application vérifie si chaque objet rentre dans ce volume, quelle que soit son orientation.
+- **Prévisualisation 3D** — Vignette pour chaque fichier dans la liste + viewer 3D interactif (rotation à la souris, zoom molette) à l'ouverture des détails.
+- **Rapport d'analyse** — Score par fichier, liste des corrections nécessaires, détails techniques (triangles, volume, surface, format…).
+- **Export CSV** — Téléchargez un récapitulatif complet de tous les fichiers analysés.
 
 ---
 
@@ -70,6 +59,7 @@ python3 -m http.server 8080
 stl-sentinel/
 ├── index.html                  Page principale
 ├── site.webmanifest            Manifeste PWA
+├── LICENSE
 ├── css/
 │   └── style.css               Styles (thème sombre)
 ├── js/
@@ -79,17 +69,9 @@ stl-sentinel/
 └── assets/
     ├── favicon.svg             Icône vectorielle
     ├── favicon.ico             Multi-tailles (16→256)
-    ├── favicon-16x16.png
-    ├── favicon-32x32.png
-    ├── favicon-48x48.png
-    ├── favicon-64x64.png
-    ├── favicon-128x128.png
-    ├── favicon-256x256.png
-    ├── favicon-512x512.png
+    ├── favicon-*.png           PNG de 16×16 à 512×512
     ├── apple-touch-icon.png    180×180 pour iOS
-    ├── android-chrome-192x192.png
-    ├── android-chrome-512x512.png
-    └── screenshot.png          Aperçu pour le README
+    └── android-chrome-*.png    192 et 512 pour Android
 ```
 
 ---
@@ -105,12 +87,8 @@ STLAnalyzers.register({
     description: 'Ce que ça vérifie',
     defaultPoints: 3,
     analyze(mesh, settings) {
-        // mesh.triangles — tableau de triangles
-        // mesh.bbox — bounding box {min, max, size}
-        // mesh.volume — volume en mm³
-        // mesh.surfaceArea — surface en mm²
-        // mesh.triangleCount — nombre de triangles
-        // settings.maxX/Y/Z — dimensions max configurées
+        // mesh.triangles, mesh.bbox, mesh.volume, mesh.surfaceArea
+        // settings.maxX / maxY / maxZ
 
         const ok = /* votre logique */;
 
