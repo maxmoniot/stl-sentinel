@@ -9,7 +9,7 @@
     // ======================================================
     // Settings
     // ======================================================
-    const DEFAULT_SETTINGS = { maxX: 220, maxY: 220, maxZ: 250, bareme: {} };
+    const DEFAULT_SETTINGS = { maxX: 220, maxY: 220, maxZ: 250, bareme: {}, dimPoints: 3, dimPenaltyEnabled: false, dimPenaltyPerMm: 0.5 };
 
     function loadSettings() {
         try {
@@ -21,6 +21,7 @@
     function saveSettings(s) { localStorage.setItem('stl-sentinel-settings', JSON.stringify(s)); }
 
     let settings = loadSettings();
+    settings.bareme.dimensions = settings.dimPoints || 3;
     let analysisResults = []; // each entry also has .mesh with triangles
 
     // ======================================================
@@ -42,23 +43,56 @@
     const dimX = $('#dim-x');
     const dimY = $('#dim-y');
     const dimZ = $('#dim-z');
+    const dimPenaltyToggle = $('#dim-penalty-toggle');
+    const dimPenaltyConfig = $('#dim-penalty-config');
+    const dimPenaltyValue = $('#dim-penalty-value');
+    const dimPointsInput = $('#dim-points');
 
     // ======================================================
-    // Dimensions
+    // Dimensions + Penalty
     // ======================================================
     dimX.value = settings.maxX;
     dimY.value = settings.maxY;
     dimZ.value = settings.maxZ;
+    dimPointsInput.value = settings.dimPoints;
+    dimPenaltyToggle.checked = settings.dimPenaltyEnabled;
+    dimPenaltyValue.value = settings.dimPenaltyPerMm;
+    if (settings.dimPenaltyEnabled) dimPenaltyConfig.classList.remove('hidden');
 
     function readDimSettings() {
         settings.maxX = parseInt(dimX.value) || 220;
         settings.maxY = parseInt(dimY.value) || 220;
         settings.maxZ = parseInt(dimZ.value) || 250;
+        settings.dimPoints = parseFloat(dimPointsInput.value) || 3;
+        settings.bareme.dimensions = settings.dimPoints;
+        settings.dimPenaltyEnabled = dimPenaltyToggle.checked;
+        settings.dimPenaltyPerMm = parseFloat(dimPenaltyValue.value) || 0.5;
         saveSettings(settings);
+        showReanalyzeIfNeeded();
     }
     [dimX, dimY, dimZ].forEach(input => {
         input.addEventListener('change', readDimSettings);
         input.addEventListener('input', () => { input.value = input.value.replace(/[^0-9]/g, ''); });
+    });
+
+    dimPointsInput.addEventListener('change', readDimSettings);
+    dimPointsInput.addEventListener('input', () => {
+        dimPointsInput.value = dimPointsInput.value.replace(',', '.').replace(/[^0-9.]/g, '');
+    });
+
+    dimPenaltyToggle.addEventListener('change', () => {
+        if (dimPenaltyToggle.checked) {
+            dimPenaltyConfig.classList.remove('hidden');
+        } else {
+            dimPenaltyConfig.classList.add('hidden');
+        }
+        readDimSettings();
+    });
+
+    dimPenaltyValue.addEventListener('change', readDimSettings);
+    dimPenaltyValue.addEventListener('input', () => {
+        // Allow digits and one dot/comma
+        dimPenaltyValue.value = dimPenaltyValue.value.replace(',', '.').replace(/[^0-9.]/g, '');
     });
 
     // ======================================================
@@ -199,15 +233,6 @@
         // STL/OBJ: Z-up → Three.js Y-up
         meshObj.rotation.x = -Math.PI / 2;
 
-        // Wireframe overlay
-        const wire = new THREE.LineSegments(
-            new THREE.WireframeGeometry(geom),
-            new THREE.LineBasicMaterial({ color: 0x4a9e82, opacity: 0.08, transparent: true })
-        );
-
-        // Same rotation as mesh
-        wire.rotation.x = -Math.PI / 2;
-
         geom.computeBoundingBox();
         const box = geom.boundingBox;
         // Apply rotation to bounding box center
@@ -216,10 +241,8 @@
         // Rotate center like the mesh (-90° X)
         const center = new THREE.Vector3(rawCenter.x, -rawCenter.z, rawCenter.y);
         meshObj.position.set(-center.x, -center.y, -center.z);
-        wire.position.set(-center.x, -center.y, -center.z);
 
         scene.add(meshObj);
-        scene.add(wire);
 
         // Rotated dimensions
         const sizeX = box.max.x - box.min.x;
@@ -347,10 +370,44 @@
             resizeObs.disconnect();
             geom.dispose();
             mat.dispose();
-            wire.geometry.dispose();
-            wire.material.dispose();
             renderer.dispose();
         };
+    }
+
+    // ======================================================
+    // Reanalyze
+    // ======================================================
+    const btnReanalyze = $('#btn-reanalyze');
+
+    function showReanalyzeIfNeeded() {
+        if (analysisResults.length > 0) {
+            btnReanalyze.classList.remove('hidden');
+        }
+    }
+
+    function reanalyze() {
+        readDimSettings();
+        // Re-run analysis on stored triangles
+        const reanalyzed = analysisResults.map(r => {
+            if (!r._triangles) return r; // error entries stay as-is
+            try {
+                const mesh = { triangles: r._triangles, vertices: [], triangleCount: r._triangles.length, format: r.format };
+                // Rebuild vertices from triangles
+                for (const tri of r._triangles) {
+                    for (const v of tri.vertices) mesh.vertices.push(v);
+                }
+                const analysis = STLAnalyzers.analyzeAll(mesh, settings);
+                analysis.fileName = r.fileName;
+                analysis.fileSize = r.fileSize;
+                analysis._triangles = r._triangles;
+                return analysis;
+            } catch (err) {
+                return r;
+            }
+        });
+        analysisResults = reanalyzed;
+        btnReanalyze.classList.add('hidden');
+        renderResults();
     }
 
     // ======================================================
@@ -504,7 +561,7 @@
                 ${thumbHtml}
                 <div class="result-status-dot ${statusClass}"></div>
                 <span class="result-filename" title="${result.fileName}">${result.fileName}</span>
-                <span class="result-score ${scoreClass}">${isError ? 'ERR' : `${result.totalScore}/${result.maxPossibleScore}`}</span>
+                <span class="result-score ${scoreClass}">${isError ? 'ERR' : `${fmtScore(result.totalScore)}/${fmtScore(result.maxPossibleScore)}`}</span>
                 ${dimsStr ? `<span class="result-dims">${dimsStr}</span>` : ''}
                 <div class="result-toggle">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -608,7 +665,7 @@
                 html += `
                     <div class="correction-item ${sev}">
                         <span class="correction-icon">${icon}</span>
-                        <span><strong>${check.label}</strong> (${check.score}/${check.maxScore} pts) — ${check.message}</span>
+                        <span><strong>${check.label}</strong> (${fmtScore(check.score)}/${fmtScore(check.maxScore)} pts) — ${check.message}</span>
                     </div>
                 `;
             }
@@ -631,7 +688,7 @@
                                 <polyline points="20 6 9 17 4 12"/>
                             </svg>
                         </span>
-                        <span><strong>${check.label}</strong> (${check.score}/${check.maxScore} pts) — ${check.message}</span>
+                        <span><strong>${check.label}</strong> (${fmtScore(check.score)}/${fmtScore(check.maxScore)} pts) — ${check.message}</span>
                     </div>
                 `;
             }
@@ -654,6 +711,10 @@
 
     function detailItem(label, value) {
         return `<div class="detail-item"><span class="detail-label">${label}</span><span class="detail-value">${value}</span></div>`;
+    }
+
+    function fmtScore(n) {
+        return n % 1 === 0 ? n.toString() : n.toFixed(1);
     }
 
     function formatFileSize(bytes) {
@@ -737,6 +798,7 @@
 
     $('#btn-add-more').addEventListener('click', () => fileInput.click());
     $('#btn-export-csv').addEventListener('click', exportCSV);
+    btnReanalyze.addEventListener('click', reanalyze);
     $('#btn-clear-all').addEventListener('click', () => {
         for (const cleanup of activeViewers.values()) cleanup();
         activeViewers.clear();

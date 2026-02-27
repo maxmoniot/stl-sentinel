@@ -27,7 +27,7 @@
 - **Import par lots** — Glissez-déposez vos fichiers STL (binaires ou ASCII) et OBJ. L'analyse se lance automatiquement.
 - **Volume d'impression** — Renseignez les dimensions X × Y × Z de votre plateau. L'application vérifie si chaque objet rentre dans ce volume, quelle que soit son orientation.
 - **Prévisualisation 3D** — Vignette pour chaque fichier dans la liste + viewer 3D interactif (rotation à la souris, zoom molette) à l'ouverture des détails.
-- **Rapport d'analyse** — Score par fichier, liste des corrections nécessaires, détails techniques (triangles, volume, surface, format…).
+- **Rapport d'analyse** — Score par fichier avec le détail des corrections nécessaires.
 - **Export CSV** — Téléchargez un récapitulatif complet de tous les fichiers analysés.
 
 ---

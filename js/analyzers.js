@@ -55,8 +55,12 @@ const STLAnalyzers = (() => {
             maxPossibleScore += points;
 
             try {
-                const result = analyzer.analyze(enrichedMesh, settings);
-                const scored = result.pass ? points : 0;
+                const result = analyzer.analyze(enrichedMesh, settings, points);
+                // Analyzers can return fractionalScore (0 to points) for partial credit
+                // If not provided, fall back to binary pass/fail
+                const scored = (result.fractionalScore !== undefined)
+                    ? result.fractionalScore
+                    : (result.pass ? points : 0);
                 totalScore += scored;
 
                 results.push({
@@ -99,42 +103,113 @@ const STLAnalyzers = (() => {
     // Built-in Analyzers
     // ======================================================
 
-    // 1. Dimension check — does it fit the build volume?
+    // 1. Dimension check — test all orientations, partial scoring
     register({
         id: 'dimensions',
         label: 'Dimensions',
         description: 'Vérifie si l\'objet rentre dans le volume d\'impression (toutes orientations)',
         defaultPoints: 3,
-        analyze(mesh, settings) {
+        analyze(mesh, settings, maxPoints) {
             const { bbox } = mesh;
             if (!bbox) return { pass: false, message: 'Impossible de calculer les dimensions', severity: 'error' };
 
-            const objDims = [bbox.size.x, bbox.size.y, bbox.size.z].sort((a, b) => a - b);
-            const maxDims = [settings.maxX, settings.maxY, settings.maxZ].sort((a, b) => a - b);
+            const objDims = [bbox.size.x, bbox.size.y, bbox.size.z];
+            const maxDims = [settings.maxX, settings.maxY, settings.maxZ];
+            const sortedMax = [...maxDims].sort((a, b) => a - b);
 
-            // Check if object fits in any orientation (sorted comparison)
-            const fits = objDims[0] <= maxDims[0] && objDims[1] <= maxDims[1] && objDims[2] <= maxDims[2];
+            const useCustomPenalty = settings.dimPenaltyEnabled && settings.dimPenaltyPerMm > 0;
+            const ptsPerMm = settings.dimPenaltyPerMm || 0.5;
+
+            // Generate all 6 permutations of object dimensions
+            const permutations = [
+                [0, 1, 2], [0, 2, 1], [1, 0, 2],
+                [1, 2, 0], [2, 0, 1], [2, 1, 0]
+            ];
+
+            // For each permutation, compute penalty and keep the best
+            let bestPenalty = Infinity;
+            let bestInfo = null;
+
+            for (const perm of permutations) {
+                const oriented = [objDims[perm[0]], objDims[perm[1]], objDims[perm[2]]];
+                const sortedObj = [...oriented].sort((a, b) => a - b);
+
+                let badAxes = 0;
+                let totalExcessMm = 0;
+
+                for (let i = 0; i < 3; i++) {
+                    const excess = sortedObj[i] - sortedMax[i];
+                    if (excess > 0.05) { // 0.05mm tolerance
+                        badAxes++;
+                        totalExcessMm += excess;
+                    }
+                }
+
+                // Compute penalty for this orientation
+                let penalty;
+                if (useCustomPenalty) {
+                    // Custom: total mm × points per mm
+                    penalty = totalExcessMm * ptsPerMm;
+                } else {
+                    // Default: 1/3 of maxPoints per bad axis
+                    penalty = (maxPoints / 3) * badAxes;
+                }
+
+                if (penalty < bestPenalty) {
+                    bestPenalty = penalty;
+                    bestInfo = { badAxes, totalExcessMm, sortedObj };
+                }
+            }
 
             const dimStr = `${bbox.size.x.toFixed(1)} × ${bbox.size.y.toFixed(1)} × ${bbox.size.z.toFixed(1)} mm`;
+            const { badAxes, totalExcessMm } = bestInfo;
 
-            if (fits) {
+            // Perfect fit
+            if (badAxes === 0) {
                 return {
                     pass: true,
+                    fractionalScore: maxPoints,
                     message: `Dimensions OK (${dimStr})`,
                     severity: 'success',
                     detail: dimStr
                 };
-            } else {
+            }
+
+            // Round penalty to 0.5, clamp score to [0, maxPoints]
+            const roundedPenalty = Math.round(bestPenalty * 2) / 2;
+            const finalScore = Math.max(0, Math.round((maxPoints - roundedPenalty) * 2) / 2);
+
+            const maxStr = `${settings.maxX}×${settings.maxY}×${settings.maxZ}`;
+
+            if (useCustomPenalty) {
+                const axisWord = badAxes === 1 ? 'axe' : 'axes';
                 return {
                     pass: false,
-                    message: `L'objet (${dimStr}) dépasse le volume maximum (${settings.maxX}×${settings.maxY}×${settings.maxZ} mm)`,
-                    severity: 'error',
+                    fractionalScore: finalScore,
+                    message: `${badAxes} ${axisWord} hors limites — dépassement total ${totalExcessMm.toFixed(1)} mm × ${ptsPerMm} pt/mm = −${roundedPenalty} pt${roundedPenalty > 1 ? 's' : ''} (${dimStr})`,
+                    severity: finalScore <= 0 ? 'error' : 'warning',
                     detail: dimStr
                 };
             }
+
+            // Default mode
+            const axisWord = badAxes === 1 ? 'axe dépasse' : 'axes dépassent';
+            return {
+                pass: false,
+                fractionalScore: finalScore,
+                message: `${badAxes} ${axisWord} le volume max ${maxStr} mm (${dimStr}) → −${roundedPenalty} pt${roundedPenalty > 1 ? 's' : ''}`,
+                severity: finalScore <= 0 ? 'error' : 'warning',
+                detail: dimStr
+            };
         }
     });
 
+    // ======================================================
+    // Analyseurs désactivés pour le moment
+    // À décommenter pour les réactiver
+    // ======================================================
+
+    /*
     // 2. Triangle count sanity
     register({
         id: 'triangleCount',
@@ -201,9 +276,7 @@ const STLAnalyzers = (() => {
         description: 'Vérifie que le maillage est fermé (chaque arête est partagée par exactement 2 triangles)',
         defaultPoints: 3,
         analyze(mesh, settings) {
-            // Build edge map
             const edgeMap = new Map();
-            let totalEdges = 0;
 
             for (const tri of mesh.triangles) {
                 const verts = tri.vertices;
@@ -212,7 +285,6 @@ const STLAnalyzers = (() => {
                     const b = verts[(i + 1) % 3];
                     const key = edgeKey(a, b);
                     edgeMap.set(key, (edgeMap.get(key) || 0) + 1);
-                    totalEdges++;
                 }
             }
 
@@ -256,7 +328,6 @@ const STLAnalyzers = (() => {
 
             for (const tri of mesh.triangles) {
                 const [v1, v2, v3] = tri.vertices;
-                // Compute area via cross product
                 const ax = v2.x - v1.x, ay = v2.y - v1.y, az = v2.z - v1.z;
                 const bx = v3.x - v1.x, by = v3.y - v1.y, bz = v3.z - v1.z;
                 const cx = ay * bz - az * by;
@@ -298,7 +369,6 @@ const STLAnalyzers = (() => {
                 const [v1, v2, v3] = tri.vertices;
                 const n = tri.normal;
 
-                // Compute expected normal from vertices
                 const ax = v2.x - v1.x, ay = v2.y - v1.y, az = v2.z - v1.z;
                 const bx = v3.x - v1.x, by = v3.y - v1.y, bz = v3.z - v1.z;
                 const cx = ay * bz - az * by;
@@ -313,9 +383,8 @@ const STLAnalyzers = (() => {
                     continue;
                 }
 
-                if (magComputed < 1e-10) continue; // degenerate triangle
+                if (magComputed < 1e-10) continue;
 
-                // Dot product between stored normal and computed normal
                 const dot = (n.x * cx + n.y * cy + n.z * cz) / (magNormal * magComputed);
                 if (dot < 0) flippedCount++;
             }
@@ -343,9 +412,11 @@ const STLAnalyzers = (() => {
             };
         }
     });
+    */
 
     // ======================================================
     // Helper: create a canonical edge key from two vertices
+    // (utilisé par l'analyseur manifold quand il sera réactivé)
     // ======================================================
     function edgeKey(a, b) {
         // Round to avoid floating point issues
