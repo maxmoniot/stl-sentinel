@@ -229,35 +229,134 @@ body {
 /* ============================================
    Inline Dimension Settings
    ============================================ */
-.dim-settings {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-    padding: 14px 20px;
+/* ============================================
+   Barême de notation
+   ============================================ */
+.bareme-panel {
     background: var(--bg-card);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-lg);
+    overflow: hidden;
     animation: fadeInUp 0.5s ease;
 }
 
-.dim-settings-row {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    flex-wrap: wrap;
-}
-
-.dim-settings-label {
+.bareme-title {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 11px 20px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+}
+.bareme-title svg { color: var(--accent); flex-shrink: 0; }
+
+.bareme-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 13px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background var(--transition-fast);
+}
+.bareme-row:hover { background: var(--bg-card-hover); }
+.bareme-row .toggle-switch { margin-top: 2px; flex-shrink: 0; }
+
+.bareme-info {
+    flex: 1;
+    min-width: 0;
+}
+.bareme-label {
+    display: block;
     font-size: 0.85rem;
     font-weight: 600;
-    color: var(--text-secondary);
-    white-space: nowrap;
+    color: var(--text-primary);
+    margin-bottom: 4px;
 }
-.dim-settings-label svg {
+.bareme-desc {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 2px;
+}
+.bareme-sub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+.bareme-sub.hidden { display: none; }
+
+/* Reuse existing dim-inputs-inline inside bareme */
+.bareme-sub .dim-inputs-inline { margin: 0; }
+.bareme-sub .dim-penalty-option {
+    margin-top: 0;
+    padding-top: 0;
+    border: none;
+    width: auto;
+}
+
+.criteria-angle-input {
+    width: 46px;
+    padding: 4px 6px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
     color: var(--accent);
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    text-align: center;
+    outline: none;
+    transition: border-color var(--transition-fast);
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+.criteria-angle-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 20px;
+    transition: all var(--transition-fast);
+}
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: all var(--transition-fast);
+}
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--accent-dim);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(16px);
+    background: var(--accent);
 }
 
 .dim-inputs-inline {
@@ -404,6 +503,10 @@ body {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-glow);
 }
+
+/* ============================================
+   Criteria Settings Panel (removed - merged into bareme)
+   ============================================ */
 
 /* Toggle Switch */
 .toggle-switch {
@@ -604,6 +707,7 @@ body {
 }
 
 .dropzone {
+    display: block;
     position: relative;
     border: 2px dashed var(--border-primary);
     border-radius: var(--radius-xl);
@@ -985,6 +1089,31 @@ body {
     color: var(--success);
     font-size: 0.84rem;
 }
+
+/* Background checks collapsible */
+.bg-checks-details {
+    margin-top: 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-subtle);
+    overflow: hidden;
+}
+.bg-checks-summary {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 12px;
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: background var(--transition-fast), color var(--transition-fast);
+}
+.bg-checks-summary::-webkit-details-marker { display: none; }
+.bg-checks-summary:hover { background: var(--bg-elevated); color: var(--text-secondary); }
+.bg-checks-details[open] .bg-checks-summary { border-bottom: 1px solid var(--border-subtle); }
+.bg-checks-details .corrections-list { padding: 10px 12px 12px; }
 
 /* ============================================
    Footer

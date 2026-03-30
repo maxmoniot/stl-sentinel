@@ -9,7 +9,12 @@
     // ======================================================
     // Settings
     // ======================================================
-    const DEFAULT_SETTINGS = { maxX: 220, maxY: 220, maxZ: 250, bareme: {}, dimPoints: 3, dimPenaltyEnabled: false, dimPenaltyPerMm: 0.5 };
+    const DEFAULT_SETTINGS = {
+        maxX: 220, maxY: 220, maxZ: 250,
+        dimPoints: 3, dimEnabled: true, dimPenaltyEnabled: false, dimPenaltyPerMm: 0.5,
+        overhangEnabled: false, overhangPoints: 1, overhangAngle: 45,
+        connectedEnabled: false, connectedPoints: 1
+    };
 
     function loadSettings() {
         try {
@@ -21,8 +26,31 @@
     function saveSettings(s) { localStorage.setItem('stl-sentinel-settings', JSON.stringify(s)); }
 
     let settings = loadSettings();
-    settings.bareme.dimensions = settings.dimPoints || 3;
-    let analysisResults = []; // each entry also has .mesh with triangles
+    let analysisResults = [];
+
+    // Build the "enabledChecks" and "bareme" objects that analyzers.js reads
+    function syncAnalyzerSettings() {
+        // Only the 3 user-facing criteria are scored; all others run silently (no score)
+        settings.enabledChecks = {};
+        settings.bareme = {};
+        STLAnalyzers.getAll().forEach(a => {
+            if (a.id === 'dimensions') {
+                settings.enabledChecks[a.id] = settings.dimEnabled !== false;
+                settings.bareme[a.id] = settings.dimPoints || 3;
+            } else if (a.id === 'overhang') {
+                settings.enabledChecks[a.id] = !!settings.overhangEnabled;
+                settings.bareme[a.id] = settings.overhangPoints || 1;
+            } else if (a.id === 'connected') {
+                settings.enabledChecks[a.id] = !!settings.connectedEnabled;
+                settings.bareme[a.id] = settings.connectedPoints || 1;
+            } else {
+                // Background checks: always run but worth 0 points in score
+                settings.enabledChecks[a.id] = true;
+                settings.bareme[a.id] = 0;
+            }
+        });
+    }
+    syncAnalyzerSettings();
 
     // ======================================================
     // DOM
@@ -47,9 +75,16 @@
     const dimPenaltyConfig = $('#dim-penalty-config');
     const dimPenaltyValue = $('#dim-penalty-value');
     const dimPointsInput = $('#dim-points');
+    const checkDimensions = $('#check-dimensions');
+    const checkOverhang = $('#check-overhang');
+    const checkConnected = $('#check-connected');
+    const overhangPointsInput = $('#overhang-points');
+    const connectedPointsInput = $('#connected-points');
+    const overhangAngleInput = $('#overhang-angle');
+    const overhangSub = $('#overhang-sub');
 
     // ======================================================
-    // Dimensions + Penalty
+    // Barême panel — init + events
     // ======================================================
     dimX.value = settings.maxX;
     dimY.value = settings.maxY;
@@ -57,42 +92,63 @@
     dimPointsInput.value = settings.dimPoints;
     dimPenaltyToggle.checked = settings.dimPenaltyEnabled;
     dimPenaltyValue.value = settings.dimPenaltyPerMm;
-    if (settings.dimPenaltyEnabled) dimPenaltyConfig.classList.remove('hidden');
+    checkDimensions.checked = settings.dimEnabled !== false;
+    checkOverhang.checked = !!settings.overhangEnabled;
+    checkConnected.checked = !!settings.connectedEnabled;
+    overhangPointsInput.value = settings.overhangPoints;
+    connectedPointsInput.value = settings.connectedPoints;
+    overhangAngleInput.value = settings.overhangAngle;
 
-    function readDimSettings() {
+    if (settings.dimPenaltyEnabled) dimPenaltyConfig.classList.remove('hidden');
+    if (settings.overhangEnabled) overhangSub.classList.remove('hidden');
+
+    function readAndSave() {
         settings.maxX = parseInt(dimX.value) || 220;
         settings.maxY = parseInt(dimY.value) || 220;
         settings.maxZ = parseInt(dimZ.value) || 250;
         settings.dimPoints = parseFloat(dimPointsInput.value) || 3;
-        settings.bareme.dimensions = settings.dimPoints;
+        settings.dimEnabled = checkDimensions.checked;
         settings.dimPenaltyEnabled = dimPenaltyToggle.checked;
         settings.dimPenaltyPerMm = parseFloat(dimPenaltyValue.value) || 0.5;
+        settings.overhangEnabled = checkOverhang.checked;
+        settings.overhangPoints = parseFloat(overhangPointsInput.value) || 1;
+        settings.overhangAngle = Math.max(1, Math.min(89, parseInt(overhangAngleInput.value) || 45));
+        overhangAngleInput.value = settings.overhangAngle;
+        settings.connectedEnabled = checkConnected.checked;
+        settings.connectedPoints = parseFloat(connectedPointsInput.value) || 1;
+        syncAnalyzerSettings();
         saveSettings(settings);
         showReanalyzeIfNeeded();
     }
-    [dimX, dimY, dimZ].forEach(input => {
-        input.addEventListener('change', readDimSettings);
-        input.addEventListener('input', () => { input.value = input.value.replace(/[^0-9]/g, ''); });
-    });
 
-    dimPointsInput.addEventListener('change', readDimSettings);
-    dimPointsInput.addEventListener('input', () => {
-        dimPointsInput.value = dimPointsInput.value.replace(',', '.').replace(/[^0-9.]/g, '');
+    // Numeric-only inputs
+    [dimX, dimY, dimZ].forEach(inp => {
+        inp.addEventListener('change', readAndSave);
+        inp.addEventListener('input', () => { inp.value = inp.value.replace(/[^0-9]/g, ''); });
     });
-
-    dimPenaltyToggle.addEventListener('change', () => {
-        if (dimPenaltyToggle.checked) {
-            dimPenaltyConfig.classList.remove('hidden');
-        } else {
-            dimPenaltyConfig.classList.add('hidden');
-        }
-        readDimSettings();
+    [dimPointsInput, overhangPointsInput, connectedPointsInput].forEach(inp => {
+        inp.addEventListener('change', readAndSave);
+        inp.addEventListener('input', () => { inp.value = inp.value.replace(',', '.').replace(/[^0-9.]/g, ''); });
     });
-
-    dimPenaltyValue.addEventListener('change', readDimSettings);
+    overhangAngleInput.addEventListener('change', readAndSave);
+    overhangAngleInput.addEventListener('input', () => {
+        overhangAngleInput.value = overhangAngleInput.value.replace(/[^0-9]/g, '');
+    });
+    dimPenaltyValue.addEventListener('change', readAndSave);
     dimPenaltyValue.addEventListener('input', () => {
-        // Allow digits and one dot/comma
         dimPenaltyValue.value = dimPenaltyValue.value.replace(',', '.').replace(/[^0-9.]/g, '');
+    });
+
+    // Toggles
+    checkDimensions.addEventListener('change', readAndSave);
+    checkOverhang.addEventListener('change', () => {
+        overhangSub.classList.toggle('hidden', !checkOverhang.checked);
+        readAndSave();
+    });
+    checkConnected.addEventListener('change', readAndSave);
+    dimPenaltyToggle.addEventListener('change', () => {
+        dimPenaltyConfig.classList.toggle('hidden', !dimPenaltyToggle.checked);
+        readAndSave();
     });
 
     // ======================================================
@@ -137,7 +193,7 @@
      * Render a static thumbnail into a canvas
      */
     function renderThumbnail(canvas, triangles) {
-        const size = 128; // render at 2x for retina
+        const size = 128;
         canvas.width = size;
         canvas.height = size;
 
@@ -148,7 +204,6 @@
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 10000);
 
-        // Lights
         scene.add(new THREE.AmbientLight(0xffffff, 0.5));
         const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
         dirLight.position.set(1, 2, 3);
@@ -156,36 +211,42 @@
 
         const geom = buildGeometry(triangles);
         const mat = new THREE.MeshPhongMaterial({
-            color: 0x6ee7b7,
-            specular: 0x333333,
-            shininess: 30,
-            flatShading: true
+            color: 0x6ee7b7, specular: 0x333333, shininess: 30, flatShading: true
         });
         const mesh = new THREE.Mesh(geom, mat);
 
-        // STL/OBJ: Z-up → Three.js Y-up
+        // STL Z-up → Three.js Y-up : rotation.x = -PI/2
+        // After this, STL(x,y,z) → World(x, z, -y)
         mesh.rotation.x = -Math.PI / 2;
 
-        // Center and fit (accounting for -90° X rotation)
         geom.computeBoundingBox();
         const box = geom.boundingBox;
         const rawCenter = new THREE.Vector3();
         box.getCenter(rawCenter);
-        const center = new THREE.Vector3(rawCenter.x, -rawCenter.z, rawCenter.y);
-        mesh.position.set(-center.x, -center.y, -center.z);
+
+        // World Y extent = STL Z extent
+        const sizeY_world = box.max.z - box.min.z;
+        // Correct centering: position = -(world coords of STL center after rotation)
+        // World center = (rawCenter.x, rawCenter.z, -rawCenter.y)
+        // Pose on ground: shift +sizeY_world/2 so bottom touches Y=0
+        mesh.position.set(
+            -rawCenter.x,
+            -rawCenter.z + sizeY_world / 2,
+            rawCenter.y
+        );
         scene.add(mesh);
 
         const sizeX = box.max.x - box.min.x;
-        const sizeY = box.max.z - box.min.z;
         const sizeZ = box.max.y - box.min.y;
-        const maxDim = Math.max(sizeX, sizeY, sizeZ);
+        const maxDim = Math.max(sizeX, sizeY_world, sizeZ);
         const dist = maxDim * 1.8;
-        camera.position.set(dist * 0.6, dist * 0.5, dist * 0.8);
-        camera.lookAt(0, 0, 0);
+        // Look at center of object (which is at world Y = sizeY_world/2)
+        const lookAtY = sizeY_world / 2;
+        camera.position.set(dist * 0.6, lookAtY + dist * 0.5, dist * 0.8);
+        camera.lookAt(0, lookAtY, 0);
 
         renderer.render(scene, camera);
 
-        // Cleanup
         geom.dispose();
         mat.dispose();
         renderer.dispose();
@@ -203,6 +264,9 @@
         renderer.setSize(w, h);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         renderer.setClearColor(0x0f1117, 1);
+        renderer.domElement.style.cursor = 'grab';
+        // Prevent context menu on right-click and suppress middle-click scroll
+        renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
         container.prepend(renderer.domElement);
 
         const scene = new THREE.Scene();
@@ -230,29 +294,41 @@
         });
         const meshObj = new THREE.Mesh(geom, mat);
 
-        // STL/OBJ: Z-up → Three.js Y-up
+        // STL Z-up → Three.js Y-up : rotation.x = -PI/2
+        // After this, STL(x,y,z) → World(x, z, -y)
         meshObj.rotation.x = -Math.PI / 2;
 
         geom.computeBoundingBox();
         const box = geom.boundingBox;
-        // Apply rotation to bounding box center
         const rawCenter = new THREE.Vector3();
         box.getCenter(rawCenter);
-        // Rotate center like the mesh (-90° X)
-        const center = new THREE.Vector3(rawCenter.x, -rawCenter.z, rawCenter.y);
-        meshObj.position.set(-center.x, -center.y, -center.z);
+
+        // World extents after rotation:
+        //   World X = STL X  →  sizeX = box.max.x - box.min.x
+        //   World Y = STL Z  →  sizeY = box.max.z - box.min.z
+        //   World Z = -STL Y →  sizeZ = box.max.y - box.min.y
+        const sizeX = box.max.x - box.min.x;
+        const sizeY = box.max.z - box.min.z; // World height
+        const sizeZ = box.max.y - box.min.y;
+        const maxDim = Math.max(sizeX, sizeY, sizeZ);
+
+        // Correct position: -(world center after rotation) + ground offset
+        //   World center after rotation = (rawCenter.x, rawCenter.z, -rawCenter.y)
+        //   Pose on ground (bottom at Y=0): add sizeY/2 to world Y
+        meshObj.position.set(
+            -rawCenter.x,
+            -rawCenter.z + sizeY / 2,
+            rawCenter.y
+        );
 
         scene.add(meshObj);
 
-        // Rotated dimensions
-        const sizeX = box.max.x - box.min.x;
-        const sizeY = box.max.z - box.min.z; // Z becomes Y after rotation
-        const sizeZ = box.max.y - box.min.y; // Y becomes Z after rotation
-        const maxDim = Math.max(sizeX, sizeY, sizeZ);
+        // Grid fixed at Y=0 (ground plane)
+        gridHelper.position.y = 0;
 
-        // Position grid at bottom of rotated object
-        const bottomY = -center.y - sizeY / 2;
-        gridHelper.position.y = bottomY;
+        // Camera orbit target = center of object in world space = (0, sizeY/2, 0)
+        const objectCenterY = sizeY / 2;
+
         let camDist = maxDim * 2.2;
 
         // Spherical coords for orbit
@@ -262,41 +338,78 @@
         let targetPhi = phi;
         let targetDist = camDist;
 
+        // Pan (lateral offset of orbit center) — start at object center
+        let panX = 0, panY = objectCenterY, panZ = 0;
+        let targetPanX = 0, targetPanY = objectCenterY, targetPanZ = 0;
+
         function updateCamera() {
             // Smooth interpolation
             theta += (targetTheta - theta) * 0.1;
             phi += (targetPhi - phi) * 0.1;
             camDist += (targetDist - camDist) * 0.1;
+            panX += (targetPanX - panX) * 0.1;
+            panY += (targetPanY - panY) * 0.1;
+            panZ += (targetPanZ - panZ) * 0.1;
 
             phi = Math.max(0.1, Math.min(Math.PI - 0.1, phi));
 
-            camera.position.x = camDist * Math.sin(phi) * Math.cos(theta);
-            camera.position.y = camDist * Math.cos(phi);
-            camera.position.z = camDist * Math.sin(phi) * Math.sin(theta);
-            camera.lookAt(0, 0, 0);
+            camera.position.x = panX + camDist * Math.sin(phi) * Math.cos(theta);
+            camera.position.y = panY + camDist * Math.cos(phi);
+            camera.position.z = panZ + camDist * Math.sin(phi) * Math.sin(theta);
+            camera.lookAt(panX, panY, panZ);
         }
 
         // Mouse controls
-        let isDragging = false;
+        let isDragging = false;   // left button → orbit
+        let isPanning = false;    // middle button → pan
         let lastX = 0, lastY = 0;
 
         renderer.domElement.addEventListener('mousedown', (e) => {
-            isDragging = true;
+            if (e.button === 0) {
+                isDragging = true;
+                renderer.domElement.style.cursor = 'grabbing';
+            } else if (e.button === 1) {
+                e.preventDefault();
+                isPanning = true;
+                renderer.domElement.style.cursor = 'move';
+            }
             lastX = e.clientX;
             lastY = e.clientY;
         });
 
+        // Prevent middle-click auto-scroll
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            if (e.button === 1) e.preventDefault();
+        });
+
         window.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
             const dx = e.clientX - lastX;
             const dy = e.clientY - lastY;
             lastX = e.clientX;
             lastY = e.clientY;
-            targetTheta += dx * 0.008;
-            targetPhi -= dy * 0.008;
+
+            if (isDragging) {
+                targetTheta += dx * 0.008;
+                targetPhi -= dy * 0.008;
+            } else if (isPanning) {
+                // Pan speed proportional to distance so it feels consistent at any zoom
+                const panSpeed = camDist * 0.0015;
+                // Right vector in world space (perpendicular to view, horizontal plane)
+                // right = (-sin θ, 0, cos θ)
+                // Up vector in screen space = (cos θ·cos φ, -sin φ, sin θ·cos φ)
+                targetPanX += dx * (-Math.sin(theta)) * panSpeed
+                            - dy * Math.cos(theta) * Math.cos(phi) * panSpeed;
+                targetPanY += dy * Math.sin(phi) * panSpeed;
+                targetPanZ += dx * Math.cos(theta) * panSpeed
+                            - dy * Math.sin(theta) * Math.cos(phi) * panSpeed;
+            }
         });
 
-        window.addEventListener('mouseup', () => { isDragging = false; });
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) isDragging = false;
+            if (e.button === 1) isPanning = false;
+            if (!isDragging && !isPanning) renderer.domElement.style.cursor = 'grab';
+        });
 
         // Touch controls
         let lastTouch = null;
@@ -343,6 +456,17 @@
             targetDist *= e.deltaY > 0 ? 1.1 : 0.9;
             targetDist = Math.max(maxDim * 0.5, Math.min(maxDim * 10, targetDist));
         }, { passive: false });
+
+        // Double-click → reset view to initial position
+        const initTheta = Math.PI / 4;
+        const initPhi = Math.PI / 3;
+        const initDist = maxDim * 2.2;
+        renderer.domElement.addEventListener('dblclick', () => {
+            targetTheta = initTheta;
+            targetPhi = initPhi;
+            targetDist = initDist;
+            targetPanX = 0; targetPanY = objectCenterY; targetPanZ = 0;
+        });
 
         // Animation loop
         let animId;
@@ -424,7 +548,7 @@
             return;
         }
 
-        readDimSettings();
+        readAndSave();
         processFiles(validFiles);
     }
 
@@ -570,7 +694,7 @@
                 </div>
             </div>
             <div class="result-details">
-                ${result._triangles ? `<div class="viewer3d-container" id="viewer-${idx}"><span class="viewer3d-hint">clic + glisser pour tourner · molette pour zoomer</span></div>` : ''}
+                ${result._triangles ? `<div class="viewer3d-container" id="viewer-${idx}"><span class="viewer3d-hint">clic gauche : tourner · molette : zoomer · clic molette : déplacer · double-clic : recentrer</span></div>` : ''}
                 ${isError ? renderErrorDetails(result) : renderAnalysisDetails(result)}
             </div>
         `;
@@ -645,19 +769,24 @@
         }
         html += `</div>`;
 
-        const failures = result.checks.filter(c => !c.pass);
-        const successes = result.checks.filter(c => c.pass);
+        // Separate scored criteria from background technical checks
+        const scoredChecks = result.checks.filter(c => c.maxScore > 0);
+        const bgChecks = result.checks.filter(c => c.maxScore === 0);
 
-        if (failures.length > 0) {
+        const scoredFailures = scoredChecks.filter(c => !c.pass);
+        const scoredSuccesses = scoredChecks.filter(c => c.pass);
+
+        // Scored criteria failures
+        if (scoredFailures.length > 0) {
             html += `<div class="corrections-title">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
                     <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                 </svg>
-                Corrections nécessaires (${failures.length})
+                Critères non validés (${scoredFailures.length})
             </div>`;
             html += `<div class="corrections-list">`;
-            for (const check of failures) {
+            for (const check of scoredFailures) {
                 const sev = check.severity === 'warning' ? 'warning' : 'error';
                 const icon = sev === 'warning'
                     ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
@@ -672,15 +801,16 @@
             html += `</div>`;
         }
 
-        if (successes.length > 0 && failures.length > 0) {
-            html += `<div class="corrections-title" style="margin-top:16px">
+        if (scoredSuccesses.length > 0) {
+            const titleMargin = scoredFailures.length > 0 ? ' style="margin-top:16px"' : '';
+            html += `<div class="corrections-title"${titleMargin}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                 </svg>
-                Critères validés (${successes.length})
+                Critères validés (${scoredSuccesses.length})
             </div>`;
             html += `<div class="corrections-list">`;
-            for (const check of successes) {
+            for (const check of scoredSuccesses) {
                 html += `
                     <div class="correction-item success">
                         <span class="correction-icon">
@@ -695,15 +825,45 @@
             html += `</div>`;
         }
 
-        if (failures.length === 0) {
+        if (scoredChecks.length === 0) {
+            html += `<div class="no-corrections" style="opacity:0.6">Aucun critère noté activé dans le barême.</div>`;
+        } else if (scoredFailures.length === 0) {
             html += `
                 <div class="no-corrections">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
-                    Tous les critères sont validés — le fichier est prêt pour l'impression !
+                    Tous les critères du barême sont validés !
                 </div>
             `;
+        }
+
+        // Background technical checks (no points) — shown as collapsible info
+        const bgFailures = bgChecks.filter(c => !c.pass);
+        if (bgFailures.length > 0 || bgChecks.length > 0) {
+            html += `<details class="bg-checks-details">
+                <summary class="bg-checks-summary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    Vérifications techniques${bgFailures.length > 0 ? ` — ${bgFailures.length} point(s) d'attention` : ' — OK'}
+                </summary>
+                <div class="corrections-list" style="margin-top:8px">`;
+            for (const check of bgChecks) {
+                const sev = check.pass ? 'success' : (check.severity === 'warning' ? 'warning' : 'error');
+                const icon = check.pass
+                    ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>'
+                    : sev === 'warning'
+                        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+                        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+                html += `
+                    <div class="correction-item ${sev}" style="font-size:0.78rem">
+                        <span class="correction-icon" style="font-size:0.78rem">${icon}</span>
+                        <span><strong>${check.label}</strong> — ${check.message}</span>
+                    </div>
+                `;
+            }
+            html += `</div></details>`;
         }
 
         return html;
@@ -779,7 +939,6 @@
     $('#btn-close-support').addEventListener('click', closeSupport);
     supportOverlay.addEventListener('click', (e) => { if (e.target === supportOverlay) closeSupport(); });
 
-    dropzone.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => {
         if (e.target.files.length > 0) handleFiles(e.target.files);
         fileInput.value = '';
